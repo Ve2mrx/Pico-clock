@@ -42,19 +42,14 @@ rp_rtc = rtc.RTC()
 rtc = adafruit_ds3231.DS3231(i2c)
 
 #  Variable init
-print(type(os.getenv('TIME_OFFSET', 0.0)))
-print(float(str(os.getenv('TIME_OFFSET', 0.0))))
-time_offset = float(os.getenv('TIME_OFFSET', 0.0))
+time_offset = float(os.getenv('TIME_OFFSET'))
 ntp_synced = False    # True when sync'd to NTP
 
 print()
 print("Connecting to WiFi")
 
 #  connect to your SSID
-print(str(os.getenv('WIFI_SSID')))
-print(str(os.getenv('WIFI_PASSWORD')))
-
-wifi.radio.connect(str(os.getenv('WIFI_SSID')), str(os.getenv('WIFI_PASSWORD')))
+wifi.radio.connect(os.getenv('WIFI_SSID'), os.getenv('WIFI_PASSWORD'))
 
 print("Connected to WiFi")
 led.value = True
