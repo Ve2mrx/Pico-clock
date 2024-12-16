@@ -17,9 +17,9 @@ import rtc
 
 import adafruit_ntp
 
-import adafruit_datetime as datetime
+#import adafruit_datetime as datetime
 #, adafruit_datetime as timezone, adafruit_datetime as time, adafruit_datetime as date
-from adafruit_datetime import datetime as datetime_2, timezone as timezone #, time, date, 
+from adafruit_datetime import datetime, timedelta, timezone #, time, date, 
 
 from cedargrove_dst_adjuster import adjust_dst
 
@@ -27,11 +27,15 @@ import adafruit_ds3231
 from adafruit_ht16k33.segments import BigSeg7x4
 
 def init_wifi(led):
+    wifi.radio.hostname = 'PicoW-clock'
+
     print()
     print("Connecting to WiFi")
     
     #  connect to your SSID
     print("SSID = ", os.getenv('CIRCUITPY_WIFI_SSID'), ", Password = ", os.getenv('CIRCUITPY_WIFI_PASSWORD'))
+    print(f"hostname= {wifi.radio.hostname}")
+
     wifi.radio.connect(os.getenv('CIRCUITPY_WIFI_SSID'), os.getenv('CIRCUITPY_WIFI_PASSWORD'))
     
     print("Connected to WiFi")
@@ -44,7 +48,7 @@ def time_ntp_sync(ntp_synced:bool):
     
     now_rtc_time = ds_rtc.datetime
     ntp_count = 0
-    now_datetime = datetime_2.fromtimestamp(mktime(now_rtc_time))
+    now_datetime = datetime.fromtimestamp(mktime(now_rtc_time))
     #now_datetime = now_rtc_time
     print("RTC0       : ", now_datetime, "Sync'd? ", ntp_synced)
     #print("ntp1       : ")
@@ -61,7 +65,7 @@ def time_ntp_sync(ntp_synced:bool):
         if ntp_time > ntp_start_time:
             ds_rtc.datetime = ntp_time
             
-            rp_rtc.datetime = datetime_2.timetuple(datetime_2.fromtimestamp(mktime(ntp_time)) + datetime.timedelta(seconds = -1))
+            rp_rtc.datetime = datetime.timetuple(datetime.fromtimestamp(mktime(ntp_time)) + timedelta(seconds = -1))
             #rp_rtc.datetime = datetime_2.timetuple(ntp_time_offset)
             
             
@@ -72,13 +76,13 @@ def time_ntp_sync(ntp_synced:bool):
                 ntp_synced = True
                 #print("Sync'd? ", ntp_synced)
                 
-                ntp_datetime = datetime_2.fromtimestamp(mktime(ntp_time))
-                now_datetime = datetime_2.fromtimestamp(mktime(now_rtc_time))
+                ntp_datetime = datetime.fromtimestamp(mktime(ntp_time))
+                now_datetime = datetime.fromtimestamp(mktime(now_rtc_time))
                 #now_datetime = now_rtc_time
                 print("ntp1       : ", ntp_datetime)
                 print("RTC DS3231 : ", now_datetime, "Sync'd? ", ntp_synced)
-                print("RTC RP2040 : ", datetime.datetime.now())
-                print("ntp now    : ", datetime_2.fromtimestamp(mktime(ntp.datetime)))
+                print("RTC RP2040 : ", datetime.now())
+                print("ntp now    : ", datetime.fromtimestamp(mktime(ntp.datetime)))
                 
         else:
             ntp_count += 1
@@ -87,14 +91,18 @@ def time_ntp_sync(ntp_synced:bool):
     print("start: ", ntp_start_time.tm_sec, "now: ", ntp_time.tm_sec)
     print("Count= ", ntp_count, "Time= ", ntp_count * 0.05, "s")
 
-    #ntp_time_datetime = datetime_2.fromtimestamp(mktime(ntp_time))
-    #print("ntp : ", datetime_2.fromtimestamp(mktime(ntp.datetime)))
-    #now_datetime = datetime.datetime.now()
-
     #  clear display, we know what the time is!
     #display.fill(0)
     return(ntp_synced, now_datetime)
     
+def calcNextSync(datetime_obj:object) -> object:
+    # extract date from datetime and set the time to 00:00:00.0
+    datetime_date = datetime_obj.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Add a day to the datetime
+    timeNextSync = datetime_date + timedelta(days=1)
+    return timeNextSync
+
 if __name__ == '__main__':
     #  Hardware init
     i2c = busio.I2C(board.GP5, board.GP4)
@@ -117,6 +125,8 @@ if __name__ == '__main__':
     time_offset = float(os.getenv('TIME_OFFSET', "0.0"))
     ntp_synced = False    # True when sync'd to NTP
     
+    now_datetime = datetime.now()
+    
     # Init WiFi
     pool = init_wifi(led)
     
@@ -134,39 +144,32 @@ if __name__ == '__main__':
     ntp_server = os.getenv('NTP_SERVER', "ca.pool.ntp.org")
     ntp = adafruit_ntp.NTP(pool, server = ntp_server, tz_offset=0)
     print(f"NTP server is {ntp_server}")
-    
-    # ntp_synced = time_ntp_sync(ntp_synced)
-    
+        
     while True:
-        #now_rtc_time = rtc.datetime
-        
-        #print("DS3231 : ", datetime_2.fromtimestamp(mktime(now_rtc_time)))
-        #print("RP2040 : ", datetime_2.fromtimestamp(mktime(rp_rtc.datetime)))
-        #print("ntp    : ", datetime_2.fromtimestamp(mktime(ntp.datetime)))
-        
-        #now_datetime = datetime_2.fromtimestamp(mktime(now_rtc_time))
-        #now_datetime = now_rtc_time
-        now_datetime = datetime.datetime.now()
-        #now_datetime = datetime.time()
     
         if ntp_synced == False:
             #  blank display, we don't know what the time is!
-            display.fill(1)
+            display.fill(True)
 
             ntp_synced = time_ntp_sync(ntp_synced)
+            timeNextSync = calcNextSync(now_datetime)
+
+            print(f"now= {now_datetime}, next= {timeNextSync}")
             
             #  clear display, we know what the time is!
-            display.fill(0)
+            display.fill(False)
+
+        now_datetime = datetime.now()
 
         # Apply timezone
-        now_datetime = now_datetime + datetime.timedelta(hours = time_offset)
+        now_datetime_local = now_datetime + timedelta(hours = time_offset)
         
         # Check datetime and adjust if DST
-        now_adj_time, is_dst = adjust_dst(now_datetime.timetuple())
+        now_adj_time, is_dst = adjust_dst(now_datetime_local.timetuple())
         #print("now_adj_time : ", now_adj_time)
     
         #  Convert from struct_time to struct_datetime
-        now_adj = datetime_2.fromtimestamp(mktime(now_adj_time))
+        now_adj = datetime.fromtimestamp(mktime(now_adj_time))
         
         if is_dst:
             flag_text = "DST"
