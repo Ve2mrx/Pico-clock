@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2022 Martin Boissonneault
+# SPDX-FileCopyrightText: 2024 Martin Boissonneault
 #
 # SPDX-License-Identifier: 
 
@@ -19,7 +19,7 @@ import adafruit_ntp
 
 #import adafruit_datetime as datetime
 #, adafruit_datetime as timezone, adafruit_datetime as time, adafruit_datetime as date
-from adafruit_datetime import datetime, timedelta, timezone #, time, date, 
+from adafruit_datetime import datetime, timedelta #, timezone , time, date, 
 
 from cedargrove_dst_adjuster import adjust_dst
 
@@ -192,3 +192,7 @@ if __name__ == '__main__':
         
         # Wait a quarter second (less than 1 second to prevent colon blinking getting in phase with odd/even seconds).
         #time.sleep(0.001)
+
+        if now_datetime.timestamp() >= timeNextSync.timestamp():
+            ntp_synced = False
+            print("--- Time sync requested!")
