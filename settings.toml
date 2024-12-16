@@ -1,8 +1,0 @@
-# you can add comments like in Python
-# floats are NOT supported
-CIRCUITPY_WIFI_SSID = "WifiSSID"
-CIRCUITPY_WIFI_PASSWORD = "WiFipassword"
-TIME_OFFSET = "-5.0"
-DAYLIGHT_STRING = "EDT"
-STANDARD_STRING = "EST"
-NTP_SERVER = "pool.ntp.org"
