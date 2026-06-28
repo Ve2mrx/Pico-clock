@@ -1,11 +1,16 @@
-# you can add comments like in Python
-# floats are NOT supported
+# CircuitPython settings
+# Floats are NOT supported; use quoted strings and parse in code
+
+# WiFi
 CIRCUITPY_WIFI_SSID = "WifiSSID"
 CIRCUITPY_WIFI_PASSWORD = "WiFipassword"
+
+# Timezone (offset from UTC in hours)
 TIME_OFFSET = "-5.0"
-DAYLIGHT_STRING = "EDT"
 STANDARD_STRING = "EST"
+DAYLIGHT_STRING = "EDT"
+
+# NTP
 NTP_SERVER = "pool.ntp.org"
-# Daily NTP resync time (UTC, 24h format)
 NTP_SYNC_HOUR = "5"
 NTP_SYNC_MINUTE = "0"
