@@ -114,14 +114,16 @@ def calcNextSync(datetime_obj: object) -> object:
     :return Adafruit_datetime datetime object timeNextSync: Next datetime to sync at
     """
 
-    # extract date from datetime obj and set the time to 00:00:00.0
-    datetime_date = datetime_obj.replace(
-        hour=0, minute=0, second=0, microsecond=0)
+    sync_hour = int(os.getenv('NTP_SYNC_HOUR', "5"))
+    sync_minute = int(os.getenv('NTP_SYNC_MINUTE', "0"))
 
-    # timeNextSync = datetime_date + timedelta(seconds=15)    # DEBUG
+    # Set today's sync time
+    timeNextSync = datetime_obj.replace(
+        hour=sync_hour, minute=sync_minute, second=0, microsecond=0)
 
-    # Add a day to the datetime
-    timeNextSync = datetime_date + timedelta(days=1)
+    # If that time has already passed today, schedule for tomorrow
+    if datetime_obj >= timeNextSync:
+        timeNextSync = timeNextSync + timedelta(days=1)
 
     return timeNextSync
 

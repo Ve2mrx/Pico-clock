@@ -6,3 +6,6 @@ TIME_OFFSET = "-5.0"
 DAYLIGHT_STRING = "EDT"
 STANDARD_STRING = "EST"
 NTP_SERVER = "pool.ntp.org"
+# Daily NTP resync time (UTC, 24h format)
+NTP_SYNC_HOUR = "5"
+NTP_SYNC_MINUTE = "0"
