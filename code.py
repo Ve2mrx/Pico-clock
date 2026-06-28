@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2024 Martin Boissonneault
 #
-# SPDX-License-Identifier:
+# SPDX-License-Identifier: MIT
 
 import board
 import busio
@@ -14,6 +14,7 @@ import time
 from time import mktime
 import rtc
 # import ntptime
+import microcontroller
 
 import adafruit_ntp
 
@@ -34,8 +35,7 @@ def init_wifi(led):
     print("Connecting to WiFi")
 
     #  connect to your SSID
-    print("SSID = ", os.getenv('CIRCUITPY_WIFI_SSID'),
-          ", Password = ", os.getenv('CIRCUITPY_WIFI_PASSWORD'))
+    print("SSID = ", os.getenv('CIRCUITPY_WIFI_SSID'))
     print(f"hostname= {wifi.radio.hostname}")
 
     wifi.radio.connect(os.getenv('CIRCUITPY_WIFI_SSID'),
@@ -48,24 +48,29 @@ def init_wifi(led):
     return pool
 
 
-def time_ntp_sync(ntp_synced: bool):
+def time_ntp_sync():
+    global ntp_synced
 
     now_rtc_time = ds_rtc.datetime
-    ntp_count = 0
     now_datetime = datetime.fromtimestamp(mktime(now_rtc_time))
     # now_datetime = now_rtc_time
     print("RTC0       : ", now_datetime, "Sync'd? ", ntp_synced)
     # print("ntp1       : ")
 
-    ntp_start_time = ntp_time = ntp.datetime
+    ntp_start_time = ntp.datetime
     # ntp_start_ts = datetime_2.fromtimestamp(mktime(ntp_start_time)).timestamp()
 
-    while ntp_synced == False:
+    # Sleep through most of the current second
+    time.sleep(0.9)
+
+    # Tight-poll for the second boundary (sub-ms precision)
+    ntp_count = 0
+    poll_start = time.monotonic()
+    while not ntp_synced:
         ntp_time = ntp.datetime
-        # ntp_sec = datetime_2.fromtimestamp(mktime(ntp_time)).second
-        # print("ntp_start_ts :", ntp_start_ts, " , " , ntp_ts)
 
         if ntp_time > ntp_start_time:
+            # Second just changed — set DS3231 immediately
             ds_rtc.datetime = ntp_time
 
             rp_rtc.datetime = datetime.timetuple(
@@ -90,14 +95,14 @@ def time_ntp_sync(ntp_synced: bool):
 
         else:
             ntp_count += 1
-            time.sleep(0.05)
 
+    poll_time = time.monotonic() - poll_start
     print("start: ", ntp_start_time.tm_sec, "now: ", ntp_time.tm_sec)
-    print("Count= ", ntp_count, "Time= ", ntp_count * 0.05, "s")
+    print("Count= ", ntp_count, "Poll time= ", poll_time, "s")
 
     #  clear display, we know what the time is!
     # display.fill(0)
-    return (ntp_synced, now_datetime)
+    return now_datetime
 
 
 def calcNextSync(datetime_obj: object) -> object:
@@ -128,7 +133,7 @@ if __name__ == '__main__':
     display = BigSeg7x4(i2c, address=(0x71, 0x70))
     displayMS = BigSeg7x4(i2c, address=(0x71))
     displayLS = BigSeg7x4(i2c, address=(0x70))
-    display.fill(1)
+    display.fill(True)
 
     led = digitalio.DigitalInOut(board.LED)
     led.direction = digitalio.Direction.OUTPUT
@@ -139,7 +144,7 @@ if __name__ == '__main__':
 
     #  Variable init
     # print(type(os.getenv('TIME_OFFSET')))
-    print("Time offset = ", float(str(os.getenv('TIME_OFFSET', "0.0"))))
+    print("Time offset = ", float(os.getenv('TIME_OFFSET', "0.0")))
     time_offset = float(os.getenv('TIME_OFFSET', "0.0"))
     ntp_synced = False    # True when sync'd to NTP
 
@@ -156,7 +161,11 @@ if __name__ == '__main__':
 
     #  pings Google to test connection
     ipv4 = ipaddress.ip_address("8.8.4.4")
-    print("Ping google.com: %f ms" % (wifi.radio.ping(ipv4)*1000))
+    ping_result = wifi.radio.ping(ipv4)
+    if ping_result is not None:
+        print("Ping google.com: %f ms" % (ping_result * 1000))
+    else:
+        print("Ping google.com: failed")
 
     #  get NTP time
     ntp_server = os.getenv('NTP_SERVER', "ca.pool.ntp.org")
@@ -165,11 +174,26 @@ if __name__ == '__main__':
 
     while True:
 
-        if ntp_synced == False:
+        if not ntp_synced:
             #  blank display, we don't know what the time is!
             display.fill(True)
 
-            ntp_synced = time_ntp_sync(ntp_synced)
+            # Reconnect WiFi if disconnected
+            if not wifi.radio.connected:
+                print("WiFi disconnected, reconnecting...")
+                led.value = False
+                try:
+                    wifi.radio.connect(os.getenv('CIRCUITPY_WIFI_SSID'),
+                                       os.getenv('CIRCUITPY_WIFI_PASSWORD'))
+                    led.value = True
+                    print("WiFi reconnected")
+                except Exception as e:
+                    print("WiFi reconnect failed:", e)
+                    display.fill(True)
+                    time.sleep(1)
+                    microcontroller.reset()
+
+            now_datetime = time_ntp_sync()
             timeNextSync = calcNextSync(now_datetime)
 
             print(f"now= {now_datetime}, next= {timeNextSync}")
@@ -206,7 +230,7 @@ if __name__ == '__main__':
         # print('{0:0>2d}:{1:0>2d}.{2:0>2d}  '.format(hour,minute,second))
 
         # Toggle colon
-        displayMS.colons[0] = displayLS.colons[1] = (second % 2) - 1
+        displayMS.colons[0] = displayLS.colons[1] = (second % 2 == 0)
 
         # Wait a quarter second (less than 1 second to prevent colon blinking getting in phase with odd/even seconds).
         # time.sleep(0.001)
