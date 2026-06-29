@@ -18,15 +18,18 @@ import os
 import ipaddress
 import wifi
 import socketpool
+import struct
 import time
 from time import mktime
 import rtc
 
-import adafruit_ntp
 from adafruit_datetime import datetime, timedelta
 from cedargrove_dst_adjuster import adjust_dst
 import adafruit_ds3231
 from adafruit_ht16k33.segments import BigSeg7x4
+
+# Seconds from NTP epoch (1900-01-01) to CircuitPython epoch (2000-01-01)
+NTP_EPOCH_OFFSET = 3155673600
 
 
 def init_wifi(led):
@@ -53,61 +56,100 @@ def init_wifi(led):
     return pool
 
 
-def time_ntp_sync():
-    """Synchronize the DS3231 and RP2040 RTCs to NTP time.
+def sntp_query():
+    """Query the NTP server with round-trip delay compensation.
 
-    Waits for the NTP second to roll over, then sets both RTCs at the
-    boundary for maximum precision. Sets ntp_synced to True on success.
+    Sends an SNTP request and uses the server's transmit timestamp (T3)
+    plus half the measured round-trip time to compute accurate UTC.
+
+    :return: (utc_secs, utc_frac, mono_ref) — seconds since CP epoch,
+             fractional second (0.0–1.0), and monotonic time at receive.
+    """
+
+    sock = pool.socket(pool.AF_INET, pool.SOCK_DGRAM)
+    sock.settimeout(5)
+
+    packet = bytearray(48)
+    packet[0] = 0x23  # LI=0, VN=4, Mode=3 (client)
+
+    mono_before = time.monotonic()
+    sock.sendto(packet, (ntp_server, 123))
+
+    buf = bytearray(48)
+    sock.recvfrom_into(buf)
+    mono_after = time.monotonic()
+    sock.close()
+
+    # Extract server receive (T2) and transmit (T3) timestamps
+    t2_secs = struct.unpack("!I", buf[32:36])[0]
+    t2_frac = struct.unpack("!I", buf[36:40])[0]
+    t3_secs = struct.unpack("!I", buf[40:44])[0]
+    t3_frac = struct.unpack("!I", buf[44:48])[0]
+
+    rtt = mono_after - mono_before
+    server_proc = (t3_secs - t2_secs) + (t3_frac - t2_frac) / 0x100000000
+    network_delay = (rtt - server_proc) / 2
+
+    # True UTC at receive = T3 + one-way network delay
+    utc_secs = t3_secs - NTP_EPOCH_OFFSET
+    utc_frac = t3_frac / 0x100000000 + network_delay
+
+    if utc_frac >= 1.0:
+        utc_secs += 1
+        utc_frac -= 1.0
+    elif utc_frac < 0.0:
+        utc_secs -= 1
+        utc_frac += 1.0
+
+    print(f"SNTP: rtt={rtt*1000:.1f}ms, delay={network_delay*1000:.1f}ms, "
+          f"frac={utc_frac:.3f}")
+
+    return utc_secs, utc_frac, mono_after
+
+
+def time_ntp_sync():
+    """Synchronize the DS3231 and RP2040 RTCs using SNTP.
+
+    Queries the NTP server with round-trip compensation, calculates the
+    exact monotonic time of the next second boundary, then sleeps until
+    that moment to set both RTCs with sub-ms precision.
 
     :return: datetime of the synced time (UTC).
     """
     global ntp_synced
 
-    sync_delay = int(os.getenv('NTP_SYNC_DELAY_MS', "200")) / 1000
     now_rtc_time = ds_rtc.datetime
     now_datetime = datetime.fromtimestamp(mktime(now_rtc_time))
     print("RTC0       : ", now_datetime, "Sync'd? ", ntp_synced)
 
-    ntp_start_time = ntp.datetime
+    # Get accurate UTC with round-trip compensation
+    utc_secs, utc_frac, mono_ref = sntp_query()
 
-    # Pre-compute the next second's struct_time so the boundary
-    # assignment has no conversion delay on the critical path.
-    next_second_tt = datetime.timetuple(
-        datetime.fromtimestamp(mktime(ntp_start_time)) + timedelta(seconds=1))
+    # Calculate monotonic time of the next second boundary
+    mono_at_boundary = mono_ref + (1.0 - utc_frac)
+    next_second = utc_secs + 1
 
-    # Sleep through most of the current second
-    time.sleep(0.9)
+    # Pre-compute struct_time for the next second
+    next_tt = datetime.timetuple(datetime.fromtimestamp(next_second))
 
-    # Tight-poll for the second boundary (sub-ms precision)
-    ntp_count = 0
-    poll_start = time.monotonic()
-    while not ntp_synced:
-        ntp_time = ntp.datetime
+    # Sleep until close to boundary, then busy-wait for precision
+    remaining = mono_at_boundary - time.monotonic()
+    if remaining > 0.01:
+        time.sleep(remaining - 0.01)
 
-        if ntp_time > ntp_start_time:
-            # Second just changed — apply tunable delay then set RTCs
-            time.sleep(sync_delay)
-            rp_rtc.datetime = next_second_tt
-            ds_rtc.datetime = ntp_time
+    while time.monotonic() < mono_at_boundary:
+        pass
 
-            if ntp_time == ntp.datetime:
-                now_rtc_time = ds_rtc.datetime
-                ntp_synced = True
+    # Set RTCs at the boundary
+    rp_rtc.datetime = next_tt
+    ds_rtc.datetime = time.localtime(next_second)
 
-                ntp_datetime = datetime.fromtimestamp(mktime(ntp_time))
-                now_datetime = datetime.fromtimestamp(mktime(now_rtc_time))
-                print("ntp1       : ", ntp_datetime)
-                print("RTC DS3231 : ", now_datetime, "Sync'd? ", ntp_synced)
-                print("RTC RP2040 : ", datetime.now())
-                print("ntp now    : ", datetime.fromtimestamp(
-                    mktime(ntp.datetime)))
+    ntp_synced = True
 
-        else:
-            ntp_count += 1
-
-    poll_time = time.monotonic() - poll_start
-    print("start: ", ntp_start_time.tm_sec, "now: ", ntp_time.tm_sec)
-    print("Count= ", ntp_count, "Poll time= ", poll_time, "s")
+    now_rtc_time = ds_rtc.datetime
+    now_datetime = datetime.fromtimestamp(mktime(now_rtc_time))
+    print("RTC DS3231 : ", now_datetime, "Sync'd? ", ntp_synced)
+    print("RTC RP2040 : ", datetime.now())
 
     return now_datetime
 
@@ -161,7 +203,7 @@ if __name__ == '__main__':
     # Init WiFi
     pool = init_wifi(led)
 
-    print("My MAC addr:", [hex(i) for i in wifi.radio.mac_address])
+    print("My MAC addr:", ":".join("{:02X}".format(i) for i in wifi.radio.mac_address))
     print("My IP address is", wifi.radio.ipv4_address)
 
     # Ping to test connection
@@ -174,7 +216,6 @@ if __name__ == '__main__':
 
     # Init NTP
     ntp_server = os.getenv('NTP_SERVER', "ca.pool.ntp.org")
-    ntp = adafruit_ntp.NTP(pool, server=ntp_server, tz_offset=0)
     print(f"NTP server is {ntp_server}")
 
     while True:
