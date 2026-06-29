@@ -63,11 +63,17 @@ def time_ntp_sync():
     """
     global ntp_synced
 
+    sync_delay = int(os.getenv('NTP_SYNC_DELAY_MS', "200")) / 1000
     now_rtc_time = ds_rtc.datetime
     now_datetime = datetime.fromtimestamp(mktime(now_rtc_time))
     print("RTC0       : ", now_datetime, "Sync'd? ", ntp_synced)
 
     ntp_start_time = ntp.datetime
+
+    # Pre-compute the next second's struct_time so the boundary
+    # assignment has no conversion delay on the critical path.
+    next_second_tt = datetime.timetuple(
+        datetime.fromtimestamp(mktime(ntp_start_time)) + timedelta(seconds=1))
 
     # Sleep through most of the current second
     time.sleep(0.9)
@@ -79,13 +85,10 @@ def time_ntp_sync():
         ntp_time = ntp.datetime
 
         if ntp_time > ntp_start_time:
-            # Second just changed — set DS3231 immediately
+            # Second just changed — apply tunable delay then set RTCs
+            time.sleep(sync_delay)
+            rp_rtc.datetime = next_second_tt
             ds_rtc.datetime = ntp_time
-
-            # Compensate for the delay of writing to the DS3231 above
-            # so the RP2040 RTC stays in sync with it.
-            rp_rtc.datetime = datetime.timetuple(
-                datetime.fromtimestamp(mktime(ntp_time)) + timedelta(seconds=-1))
 
             if ntp_time == ntp.datetime:
                 now_rtc_time = ds_rtc.datetime
