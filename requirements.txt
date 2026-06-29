@@ -1,8 +1,6 @@
-adafruit_datetime==1.4.0
-adafruit_ds3231==2.4.24
-adafruit_ntp==3.3.2
-cedargrove_dst_adjuster==1.0.0
-cedargrove_leapyear==1.0.0
-adafruit_bus_device==5.2.11
-adafruit_ht16k33==4.6.12
-adafruit_register==1.10.2
+adafruit_bus_device==5.2.17
+adafruit_datetime==1.4.6
+adafruit_ds3231==2.4.28
+adafruit_ht16k33==4.6.17
+adafruit_register==1.11.3
+cedargrove_dst_adjuster==1.0.1
