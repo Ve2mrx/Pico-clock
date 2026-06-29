@@ -212,22 +212,20 @@ if __name__ == '__main__':
     time_offset = float(os.getenv('TIME_OFFSET', "0.0"))
     print("Time offset = ", time_offset)
     ntp_synced = False
+    sync_after = 0
+    timeNextSync = datetime(2099, 1, 1)
 
     now_datetime = datetime.now()
 
     # Init WiFi
-    pool = init_wifi(led)
-
-    print("My MAC addr:", ":".join("{:02X}".format(i) for i in wifi.radio.mac_address))
-    print("My IP address is", wifi.radio.ipv4_address)
-
-    # Ping to test connection
-    ipv4 = ipaddress.ip_address("8.8.4.4")
-    ping_result = wifi.radio.ping(ipv4)
-    if ping_result is not None:
-        print("Ping google.com: %f ms" % (ping_result * 1000))
-    else:
-        print("Ping google.com: failed")
+    try:
+        pool = init_wifi(led)
+        print("My MAC addr:", ":".join("{:02X}".format(i) for i in wifi.radio.mac_address))
+        print("My IP address is", wifi.radio.ipv4_address)
+    except Exception as e:
+        pool = None
+        print("WiFi init failed:", e)
+        print("Running from DS3231 time")
 
     # Init NTP
     ntp_servers = [s.strip() for s in os.getenv('NTP_SERVERS', "pool.ntp.org").split(",")]
@@ -235,28 +233,28 @@ if __name__ == '__main__':
 
     while True:
 
-        if not ntp_synced:
-            # Reconnect WiFi if disconnected
-            if not wifi.radio.connected:
-                print("WiFi disconnected, reconnecting...")
-                led.value = False
-                try:
+        if not ntp_synced and time.monotonic() >= sync_after:
+            try:
+                # Reconnect WiFi if disconnected
+                if not wifi.radio.connected:
+                    print("WiFi disconnected, reconnecting...")
+                    led.value = False
                     wifi.radio.connect(os.getenv('CIRCUITPY_WIFI_SSID'),
                                        os.getenv('CIRCUITPY_WIFI_PASSWORD'))
+                    pool = socketpool.SocketPool(wifi.radio)
                     led.value = True
                     print("WiFi reconnected")
-                except Exception as e:
-                    print("WiFi reconnect failed:", e)
-                    display.fill(True)
-                    time.sleep(1)
-                    microcontroller.reset()
 
-            now_datetime = time_ntp_sync()
-            timeNextSync = calcNextSync(now_datetime)
-            print(f"now= {now_datetime}, next= {timeNextSync}")
-            now_adj_time, is_dst = adjust_dst((now_datetime + timedelta(hours=time_offset)).timetuple())
-            tz_label = os.getenv('DAYLIGHT_STRING', 'DST') if is_dst else os.getenv('STANDARD_STRING', 'STD')
-            print(f"Local time: {datetime.fromtimestamp(mktime(now_adj_time))} {tz_label}")
+                now_datetime = time_ntp_sync()
+                timeNextSync = calcNextSync(now_datetime)
+                print(f"now= {now_datetime}, next= {timeNextSync}")
+                now_adj_time, is_dst = adjust_dst((now_datetime + timedelta(hours=time_offset)).timetuple())
+                tz_label = os.getenv('DAYLIGHT_STRING', 'DST') if is_dst else os.getenv('STANDARD_STRING', 'STD')
+                print(f"Local time: {datetime.fromtimestamp(mktime(now_adj_time))} {tz_label}")
+            except Exception as e:
+                print("Sync failed:", e)
+                sync_after = time.monotonic() + 300
+                print("Retry in 5 minutes")
 
 
         now_datetime = datetime.now()
