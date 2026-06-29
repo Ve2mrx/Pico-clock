@@ -241,6 +241,9 @@ if __name__ == '__main__':
             now_datetime = time_ntp_sync()
             timeNextSync = calcNextSync(now_datetime)
             print(f"now= {now_datetime}, next= {timeNextSync}")
+            now_adj_time, is_dst = adjust_dst((now_datetime + timedelta(hours=time_offset)).timetuple())
+            tz_label = os.getenv('DAYLIGHT_STRING', 'DST') if is_dst else os.getenv('STANDARD_STRING', 'STD')
+            print(f"Local time: {datetime.fromtimestamp(mktime(now_adj_time))} {tz_label}")
 
             display.fill(False)
 
@@ -250,6 +253,7 @@ if __name__ == '__main__':
         now_datetime_local = now_datetime + timedelta(hours=time_offset)
         now_adj_time, is_dst = adjust_dst(now_datetime_local.timetuple())
         now_adj = datetime.fromtimestamp(mktime(now_adj_time))
+        tz_label = os.getenv('DAYLIGHT_STRING', 'DST') if is_dst else os.getenv('STANDARD_STRING', 'STD')
 
         hour = now_adj.hour
         minute = now_adj.minute
