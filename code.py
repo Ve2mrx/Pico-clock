@@ -193,6 +193,9 @@ if __name__ == '__main__':
     rp_rtc = rtc.RTC()
     ds_rtc = adafruit_ds3231.DS3231(i2c)
 
+    # Seed RP2040 RTC from battery-backed DS3231
+    rp_rtc.datetime = ds_rtc.datetime
+
     # Variable init
     time_offset = float(os.getenv('TIME_OFFSET', "0.0"))
     print("Time offset = ", time_offset)
@@ -221,8 +224,6 @@ if __name__ == '__main__':
     while True:
 
         if not ntp_synced:
-            display.fill(True)
-
             # Reconnect WiFi if disconnected
             if not wifi.radio.connected:
                 print("WiFi disconnected, reconnecting...")
@@ -245,7 +246,6 @@ if __name__ == '__main__':
             tz_label = os.getenv('DAYLIGHT_STRING', 'DST') if is_dst else os.getenv('STANDARD_STRING', 'STD')
             print(f"Local time: {datetime.fromtimestamp(mktime(now_adj_time))} {tz_label}")
 
-            display.fill(False)
 
         now_datetime = datetime.now()
 
@@ -262,8 +262,11 @@ if __name__ == '__main__':
         displayMS.print('{0:0>2d}{1:0>2d}'.format(hour, minute))
         displayLS.print('{0:0>2d}  '.format(second))
 
-        # Toggle colon
-        displayMS.colons[0] = displayLS.colons[1] = (second % 2 == 0)
+        # Colon: solid ON when unsynced, toggling when synced
+        if ntp_synced:
+            displayMS.colons[0] = displayLS.colons[1] = (second % 2 == 0)
+        else:
+            displayMS.colons[0] = displayLS.colons[1] = True
 
         if now_datetime >= timeNextSync:
             ntp_synced = False
