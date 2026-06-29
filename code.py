@@ -28,8 +28,8 @@ from cedargrove_dst_adjuster import adjust_dst
 import adafruit_ds3231
 from adafruit_ht16k33.segments import BigSeg7x4
 
-# Seconds from NTP epoch (1900-01-01) to CircuitPython epoch (2000-01-01)
-NTP_EPOCH_OFFSET = 3155673600
+# Seconds from NTP epoch (1900-01-01) to Unix epoch (1970-01-01)
+NTP_EPOCH_OFFSET = 2208988800
 
 
 def init_wifi(led):
@@ -101,8 +101,7 @@ def sntp_query():
         utc_secs -= 1
         utc_frac += 1.0
 
-    print(f"SNTP: rtt={rtt*1000:.1f}ms, delay={network_delay*1000:.1f}ms, "
-          f"frac={utc_frac:.3f}")
+    print(f"SNTP: rtt={rtt*1000:.1f}ms, delay={network_delay*1000:.1f}ms, frac={utc_frac:.3f}")
 
     return utc_secs, utc_frac, mono_after
 
@@ -130,7 +129,8 @@ def time_ntp_sync():
     next_second = utc_secs + 1
 
     # Pre-compute struct_time for the next second
-    next_tt = datetime.timetuple(datetime.fromtimestamp(next_second))
+    # RP2040 RTC reads back 1 second ahead of what is written
+    next_tt = datetime.timetuple(datetime.fromtimestamp(next_second - 1))
 
     # Sleep until close to boundary, then busy-wait for precision
     remaining = mono_at_boundary - time.monotonic()
