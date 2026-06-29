@@ -10,7 +10,7 @@ TIME_OFFSET = "-5.0"
 STANDARD_STRING = "EST"
 DAYLIGHT_STRING = "EDT"
 
-# NTP
-NTP_SERVER = "pool.ntp.org"
+# NTP (comma-separated, tried in order)
+NTP_SERVERS = "pool.ntp.org"
 NTP_SYNC_HOUR = "5"
 NTP_SYNC_MINUTE = "0"

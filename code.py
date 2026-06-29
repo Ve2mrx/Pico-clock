@@ -57,53 +57,65 @@ def init_wifi(led):
 
 
 def sntp_query():
-    """Query the NTP server with round-trip delay compensation.
+    """Query NTP servers with round-trip delay compensation.
 
-    Sends an SNTP request and uses the server's transmit timestamp (T3)
-    plus half the measured round-trip time to compute accurate UTC.
+    Tries each server in ntp_servers list until one responds.
+    Uses the server's transmit timestamp (T3) plus half the
+    measured round-trip time to compute accurate UTC.
 
-    :return: (utc_secs, utc_frac, mono_ref) — seconds since CP epoch,
+    :return: (utc_secs, utc_frac, mono_ref) — seconds since Unix epoch,
              fractional second (0.0–1.0), and monotonic time at receive.
     """
 
-    sock = pool.socket(pool.AF_INET, pool.SOCK_DGRAM)
-    sock.settimeout(5)
+    for server in ntp_servers:
+        try:
+            sock = pool.socket(pool.AF_INET, pool.SOCK_DGRAM)
+            sock.settimeout(5)
 
-    packet = bytearray(48)
-    packet[0] = 0x23  # LI=0, VN=4, Mode=3 (client)
+            packet = bytearray(48)
+            packet[0] = 0x23  # LI=0, VN=4, Mode=3 (client)
 
-    mono_before = time.monotonic()
-    sock.sendto(packet, (ntp_server, 123))
+            mono_before = time.monotonic()
+            sock.sendto(packet, (server, 123))
 
-    buf = bytearray(48)
-    sock.recvfrom_into(buf)
-    mono_after = time.monotonic()
-    sock.close()
+            buf = bytearray(48)
+            sock.recvfrom_into(buf)
+            mono_after = time.monotonic()
+            sock.close()
 
-    # Extract server receive (T2) and transmit (T3) timestamps
-    t2_secs = struct.unpack("!I", buf[32:36])[0]
-    t2_frac = struct.unpack("!I", buf[36:40])[0]
-    t3_secs = struct.unpack("!I", buf[40:44])[0]
-    t3_frac = struct.unpack("!I", buf[44:48])[0]
+            # Extract server receive (T2) and transmit (T3) timestamps
+            t2_secs = struct.unpack("!I", buf[32:36])[0]
+            t2_frac = struct.unpack("!I", buf[36:40])[0]
+            t3_secs = struct.unpack("!I", buf[40:44])[0]
+            t3_frac = struct.unpack("!I", buf[44:48])[0]
 
-    rtt = mono_after - mono_before
-    server_proc = (t3_secs - t2_secs) + (t3_frac - t2_frac) / 0x100000000
-    network_delay = (rtt - server_proc) / 2
+            rtt = mono_after - mono_before
+            server_proc = (t3_secs - t2_secs) + (t3_frac - t2_frac) / 0x100000000
+            network_delay = (rtt - server_proc) / 2
 
-    # True UTC at receive = T3 + one-way network delay
-    utc_secs = t3_secs - NTP_EPOCH_OFFSET
-    utc_frac = t3_frac / 0x100000000 + network_delay
+            # True UTC at receive = T3 + one-way network delay
+            utc_secs = t3_secs - NTP_EPOCH_OFFSET
+            utc_frac = t3_frac / 0x100000000 + network_delay
 
-    if utc_frac >= 1.0:
-        utc_secs += 1
-        utc_frac -= 1.0
-    elif utc_frac < 0.0:
-        utc_secs -= 1
-        utc_frac += 1.0
+            if utc_frac >= 1.0:
+                utc_secs += 1
+                utc_frac -= 1.0
+            elif utc_frac < 0.0:
+                utc_secs -= 1
+                utc_frac += 1.0
 
-    print(f"SNTP: rtt={rtt*1000:.1f}ms, delay={network_delay*1000:.1f}ms, frac={utc_frac:.3f}")
+            print(f"SNTP [{server}]: rtt={rtt*1000:.1f}ms, delay={network_delay*1000:.1f}ms, frac={utc_frac:.3f}")
 
-    return utc_secs, utc_frac, mono_after
+            return utc_secs, utc_frac, mono_after
+
+        except Exception as e:
+            print(f"SNTP [{server}]: failed — {e}")
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+    raise RuntimeError("All NTP servers unreachable")
 
 
 def time_ntp_sync():
@@ -218,8 +230,8 @@ if __name__ == '__main__':
         print("Ping google.com: failed")
 
     # Init NTP
-    ntp_server = os.getenv('NTP_SERVER', "ca.pool.ntp.org")
-    print(f"NTP server is {ntp_server}")
+    ntp_servers = [s.strip() for s in os.getenv('NTP_SERVERS', "pool.ntp.org").split(",")]
+    print(f"NTP servers: {ntp_servers}")
 
     while True:
 
